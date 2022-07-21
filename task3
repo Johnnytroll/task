@@ -1,0 +1,205 @@
+import pydicom
+from pydicom.data import get_testdata_file
+from pydicom.fileset import FileSet
+from pydicom.uid import generate_uid
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
+import glob
+import os
+import radiomics
+
+# load the DICOM files
+src = "path/to/dir"
+dcm = []
+for root, dirs, files in os.walk(src):
+    for file in files: 
+        if ".dcm" in file:
+            dcm.append(pydicom.dcmread(os.path.join(root, file)))
+
+print('%s files found.' % len(dcm))
+
+# skip files with no SliceLocation (eg scout views)
+slices = []
+skipcount = 0
+for f in dcm:
+    if hasattr(f, 'SliceLocation'):
+        slices.append(f)
+    else:
+        skipcount = skipcount + 1
+
+print("skipped, no SliceLocation: {}".format(skipcount))
+
+# ensure they are in the correct order
+slices = sorted(slices, key=lambda s: s.SliceLocation)
+
+# pixel aspects, assuming all slices are the same
+ps = slices[0].PixelSpacing
+ss = slices[0].SliceThickness
+ax_aspect = ps[1]/ps[0]
+sag_aspect = ps[1]/ss
+cor_aspect = ss/ps[0]
+
+# create 3D array
+img_shape = list(slices[0].pixel_array.shape)
+img_shape.append(len(slices))
+img3d = np.zeros(img_shape)
+
+# fill 3D array with the images from the files
+for i, s in enumerate(slices):
+    img2d = s.pixel_array
+    img3d[:, :, i] = img2d # not HU!
+
+# plot 3 orthogonal slices
+
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(img3d[136:336, 50:250, 182], cmap='gray')
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(cv2.rotate(img3d[180:308, 132, 72:200], cv2.ROTATE_90_COUNTERCLOCKWISE), cmap='gray')
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(cv2.rotate(img3d[232, 100:228, 76:204].T, cv2.ROTATE_180), cmap='gray')
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+# load masks
+tar = "path/to/dir"
+seg = []
+for root, dirs, files in os.walk(tar):
+    for file in files: 
+        if ".dcm" in file:
+            seg.append(pydicom.dcmread(os.path.join(root, file)))
+
+print('%s files found.' % len(seg))
+
+# pixel aspects, assuming all slices are the same
+ps = seg[0].PixelSpacing
+ss = seg[0].SliceThickness
+ax_aspect = ps[1]/ps[0]
+sag_aspect = ps[1]/ss
+cor_aspect = ss/ps[0]
+
+# create 3D array
+mask_shape = list(seg[0].pixel_array.shape)
+mask_shape.append(len(seg))
+mask3d = np.zeros(mask_shape)
+
+# fill 3D array with the images from the files
+for i, s in enumerate(seg):
+    mask2d = s.pixel_array
+    mask3d[:, :, i] = mask2d # binary mask
+
+# plot 3 orthogonal slices
+
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(mask3d[136:336, 50:250, 182], cmap='gray')
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(cv2.rotate(mask3d[180:308, 132, 72:200], cv2.ROTATE_90_COUNTERCLOCKWISE), cmap='gray')
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(cv2.rotate(mask3d[232, 100:228, 76:204].T, cv2.ROTATE_180), cmap='gray')
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+# tumours
+tmr3d = img3d * mask3d # multiply arrays to get only tumour images without normal tissues - not HU!
+
+# plot 3 orthogonal slices
+
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(tmr3d[136:336, 50:250, 182], cmap='gray')
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(cv2.rotate(tmr3d[180:308, 132, 72:200], cv2.ROTATE_90_COUNTERCLOCKWISE), cmap='gray')
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(cv2.rotate(tmr3d[232, 100:228, 76:204].T, cv2.ROTATE_180), cmap='gray')
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+# the number of slices
+z = []
+y = []
+x = []
+for i in range(tmr3d.shape[2]):
+    c = np.count_nonzero(tmr3d[:,:,i]!=0)
+    z.append(c)
+    
+for i in range(tmr3d.shape[1]):
+    b = np.count_nonzero(tmr3d[:,i,:]!=0)
+    y.append(b)
+    
+for i in range(tmr3d.shape[0]):
+    a = np.count_nonzero(tmr3d[i,:,:]!=0)
+    x.append(a)
+
+axial = len([item for item in z if item != 0])
+sagittal = len([item for item in y if item != 0])
+coronal = len([item for item in x if item != 0])
+
+print(' the number of axial slices with tumour:', axial, '\n',
+    'the number of sagittal slices with tumour:', sagittal, '\n',
+    'the number of coronal slices with tumour:', coronal)
+    
+# lengths
+zl = axial * ss
+yl = sagittal * ps[1]
+xl = coronal * ps[0]
+print('lengths:'"\n"'x:', round(xl, 1),'mm'"\n" 'y:', round(yl, 1),'mm'"\n" 'z:', round(zl, 1),'mm')
+
+# convert to HU
+tmr = tmr3d[np.nonzero(tmr3d)] - 1024
+print(np.unique(tmr))
+
+# Statistics
+print('Statistics:'"\n"'Mean:', round(np.mean(tmr), 2),
+     'HU'"\n" 'Median:', round(np.median(tmr), 2),'HU'
+     "\n" 'Standart deviation:', round(np.std(tmr), 2),'HU')
+     
+# rough volume
+V = xl*yl*zl
+print('Volume: ', round(V, 2), 'mm\u00b3')
+
+'''
+# pyradiomics
+from radiomics.featureextractor import RadiomicsFeatureExtractor
+from SimpleITK import GetImageFromArray
+import pandas as pd
+extractor = RadiomicsFeatureExtractor(verbose=False)
+extractor.disableAllFeatures()
+_text_feat = {ckey: [] for ckey in extractor.featureClassNames}
+extractor.enableFeaturesByName(**_text_feat)
+
+print('Extraction parameters:\n\t', extractor.settings)
+print('Enabled filters:\n\t', extractor.enabledImagetypes) 
+print('Enabled features:\n\t', extractor.enabledFeatures) 
+
+results = extractor.execute(GetImageFromArray(tmr3d),
+                            GetImageFromArray((tmr3d>0).astype(np.uint8)))
+                            
+# not HU!!!
+print(df.loc[["original_firstorder_Mean", 
+             "original_firstorder_Median", 
+             "original_firstorder_Variance", 
+             "original_shape_MajorAxisLength",
+             "original_shape_MinorAxisLength",
+             "original_shape_Maximum2DDiameterColumn", 
+             "original_shape_Maximum2DDiameterRow", 
+             "original_shape_Maximum2DDiameterSlice",
+             "original_shape_Maximum3DDiameter",
+             "original_shape_MeshVolume" 
+            ], :])
+            
+'''
+
