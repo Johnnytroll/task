@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import cv2
 import glob
 import os
-import radiomics
+
 
 # load the DICOM files
 src = "path/to/dir"
@@ -173,6 +173,7 @@ print('Volume: ', round(V, 2), 'mm\u00b3')
 
 '''
 # pyradiomics
+import radiomics
 from radiomics.featureextractor import RadiomicsFeatureExtractor
 from SimpleITK import GetImageFromArray
 import pandas as pd
