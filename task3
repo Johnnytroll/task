@@ -167,7 +167,7 @@ print('Statistics:'"\n"'Mean:', round(np.mean(tmr), 2),
      'HU'"\n" 'Median:', round(np.median(tmr), 2),'HU'
      "\n" 'Standart deviation:', round(np.std(tmr), 2),'HU')
      
-# rough volume
+# rough volume (rectangular cuboid)!
 V = xl*yl*zl
 print('Volume: ', round(V, 2), 'mm\u00b3')
 
@@ -189,6 +189,10 @@ print('Enabled features:\n\t', extractor.enabledFeatures)
 results = extractor.execute(GetImageFromArray(tmr3d),
                             GetImageFromArray((tmr3d>0).astype(np.uint8)))
                             
+pd.set_option("display.max_rows", 129)
+df = pd.DataFrame([results]).T
+df.style.set_properties(**{'text-align': 'right'})
+
 # not HU!!!
 print(df.loc[["original_firstorder_Mean", 
              "original_firstorder_Median", 
@@ -204,3 +208,52 @@ print(df.loc[["original_firstorder_Mean",
             
 '''
 
+# trying to fit the ellipsoid parametrs manually
+
+import numpy.linalg as linalg
+fig = plt.figure(figsize=[6, 4])
+ax = fig.add_subplot(111, projection='3d')
+
+# your ellispsoid squared semi-axes matrix from equation (x/a)^2 + (y/b)^2 + (z/c)^2 = 1
+A = np.array([[0.0054,0,0],[0,0.0078,0],[0,0,0.014]])
+
+# find the rotation matrix and radii of the axes
+U, s, rotation = linalg.svd(A)
+rx, ry, rz = 1.0/np.sqrt(s)
+
+u = np.linspace(0.0, 2.0 * np.pi, 100)
+v = np.linspace(0.0, np.pi, 100)
+x = rx * np.outer(np.cos(u), np.sin(v)) + 237 - ry * np.outer(np.sin(u), np.sin(v)) # with shift and rotation
+y = ry * np.outer(np.sin(u), np.sin(v)) + 127 + rx * np.outer(np.cos(u), np.sin(v))
+z = rz * np.outer(np.ones(np.size(u)), np.cos(v)) + 185 - rx * np.outer(np.ones(np.size(u)), np.cos(v))
+        
+# Plot 
+
+ax.plot_wireframe(x, y, z,  rstride=4, cstride=4, color='m', alpha=0.2)
+plt.show()
+
+# rough ellipsoid
+
+fig = plt.figure(figsize=[10, 10])
+
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(tmr3d[:, :, 182], cmap='gray')
+plt.plot(y, x)
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(tmr3d[:, 132, :], cmap='gray')
+plt.plot(z, x)
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(tmr3d[232, :, :], cmap='gray')
+plt.plot(z, y)
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+# printing rough calculation of major, minor lengths and ellipsoid volume
+print('Major, minor lenghts and volume (ellipsoid):'"\n"'Major length:', round(2*rz, 2),
+     'mm'"\n" 'Minor length:', round(2*ry, 2),'mm'
+     "\n" 'Ellipsoid volume:', round((4/3)*np.pi*rx*ry*rz, 2),'mm\u00b3')
