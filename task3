@@ -257,3 +257,60 @@ plt.show()
 print('Major, minor lenghts and volume (ellipsoid):'"\n"'Major length:', round(2*rz, 2),
      'mm'"\n" 'Minor length:', round(2*ry, 2),'mm'
      "\n" 'Ellipsoid volume:', round((4/3)*np.pi*rx*ry*rz, 2),'mm\u00b3')
+
+# Lengths and voxel volume calculation
+
+import logging
+logger = logging.getLogger('logger')
+logger.debug('Padding the mask with 0s')
+cpif = sitk.ConstantPadImageFilter()
+padding = np.tile(1, 3)
+try:
+    cpif.SetPadLowerBound(padding)
+    cpif.SetPadUpperBound(padding)
+except TypeError:
+    # newer versions of SITK/python want a tuple or list
+    cpif.SetPadLowerBound(padding.tolist())
+    cpif.SetPadUpperBound(padding.tolist())
+
+from SimpleITK import GetImageFromArray
+cpif.Execute(GetImageFromArray(tmr3d))
+logger.debug('Eigenvalues')
+pixelSpacing = np.array(GetImageFromArray(img3d).GetSpacing()[::-1])
+
+Np = len(np.where(tmr3d!=0)[0])
+coordinates = np.array(np.where(tmr3d!=0), dtype='int').transpose((1, 0))  # Transpose equals zip(*a)
+physicalCoordinates = coordinates * pixelSpacing[None, :]
+physicalCoordinates -= np.mean(physicalCoordinates, axis=0)  # Centered at 0
+physicalCoordinates /= np.sqrt(Np)
+covariance = np.dot(physicalCoordinates.T.copy(), physicalCoordinates)
+eigenValues = np.linalg.eigvals(covariance)
+
+# Correct machine precision errors causing very small negative eigen values in case of some 2D segmentations
+machine_errors = np.bitwise_and(eigenValues < 0, eigenValues > -1e-10)
+if np.sum(machine_errors) > 0:
+    logger.warning('Encountered %d eigenvalues < 0 and > -1e-10, rounding to 0', np.sum(machine_errors))
+    eigenValues[machine_errors] = 0
+
+eigenValues.sort()  # Sort the eigenValues from small to large
+logger.debug('Shape feature class initialized')
+e3, e2, e1 = pixelSpacing # z, y, x == e3, e2, e1
+
+if eigenValues[2] < 0:
+    logger.warning('Major axis eigenvalue negative! (%g)', eigenValues[2])
+    np.nan
+major = np.sqrt(eigenValues[2]) * 4
+
+if eigenValues[1] < 0:
+    logger.warning('Minor axis eigenvalue negative! (%g)', eigenValues[1])
+    np.nan
+minor = np.sqrt(eigenValues[1]) * 4
+
+if eigenValues[0] < 0:
+    logger.warning('Least axis eigenvalue negative! (%g)', eigenValues[0])
+    np.nan
+least = np.sqrt(eigenValues[0]) * 4
+
+print('Major, minor and least axis lenghts and voxel volume:'"\n"'Major length:', round(major, 2),
+     'mm'"\n" 'Minor length:', round(minor, 2),'mm'"\n"'Least length:', round(least, 2),
+     "\n" 'Voxel volume:', Np*e1*e2*e3,'mm\u00b3')
